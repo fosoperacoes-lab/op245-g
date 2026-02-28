@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OP245-G | Mentor Edition</title>
+    <style>
+        :root {
+            --bg-dark: #060809;
+            --card-bg: #11151a;
+            --border-color: #1e2329;
+            --success: #00C805;
+            --danger: #FF3B3B;
+            --primary: #2196F3;
+            --warning: #FFC107;
+            --info: #00FFFF;
+            --text-gray: #848e9c;
+        }
+
+        body { background: var(--bg-dark); color: white; font-family: 'Inter', sans-serif; margin: 0; padding: 20px; }
+        
+        /* Estatísticas Estilo Manus */
+        .stats-header { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .stat-box { background: var(--card-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); text-align: center; }
+        .stat-box span { display: block; font-size: 0.75rem; color: var(--text-gray); margin-bottom: 5px; text-transform: uppercase; }
+        .stat-box b { font-size: 1.4rem; }
+
+        /* Card de Sinal em Destaque (Referência image_8fa439) */
+        .signal-alert-container { display: flex; gap: 20px; margin-bottom: 25px; flex-wrap: wrap; }
+        .alert-card { flex: 1; min-width: 300px; background: var(--card-bg); border-radius: 12px; padding: 25px; position: relative; overflow: hidden; display: none; }
+        .alert-card.active { display: block; animation: slideIn 0.3s ease-out; }
+        .alert-card.buy { border: 2px solid var(--success); box-shadow: 0 0 20px rgba(0, 200, 5, 0.1); }
+        .alert-card.sell { border: 2px solid var(--danger); box-shadow: 0 0 20px rgba(255, 59, 59, 0.1); }
+        
+        .card-title { font-size: 0.8rem; letter-spacing: 2px; color: var(--text-gray); text-align: center; }
+        .card-icon { font-size: 50px; text-align: center; margin: 15px 0; }
+        .card-asset { text-align: center; font-size: 1.8rem; font-weight: bold; margin-bottom: 15px; }
+        .card-details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85rem; border-top: 1px solid var(--border-color); pt: 15px; }
+        .check-item { background: rgba(255,255,255,0.05); padding: 8px; border-radius: 4px; margin-top: 10px; font-size: 0.75rem; color: var(--success); }
+
+        /* Tabela de Histórico com Rolagem (Referência image_918c57) */
+        .history-section { background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); }
+        .history-title { padding: 15px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .scroll-area { height: 350px; overflow-y: auto; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        th { position: sticky; top: 0; background: #1e2329; color: var(--text-gray); font-size: 0.7rem; text-align: left; padding: 12px; text-transform: uppercase; }
+        td { padding: 12px; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; }
+
+        /* Custom Scrollbar */
+        .scroll-area::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scroll-area::-webkit-scrollbar-thumb { background: #2b3139; border-radius: 10px; }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div class="stats-header">
+        <div class="stat-box"><span>Total</span><b id="total">0</b></div>
+        <div class="stat-box" style="color: var(--success)"><span>Compra</span><b id="compra">0</b></div>
+        <div class="stat-box" style="color: var(--danger)"><span>Venda</span><b id="venda">0</b></div>
+        <div class="stat-box" style="color: var(--primary)"><span>Confirmados</span><b id="conf">0</b></div>
+        <div class="stat-box" style="color: var(--info)"><span>% Confirmação</span><b id="taxa">0%</b></div>
+    </div>
+
+    <div class="signal-alert-container" id="alert-zone">
+        </div>
+
+    <div class="history-section">
+        <div class="history-title">
+            <span>🔔 Últimos Sinais (Ilimitados / Rolagem)</span>
+            <span style="font-size: 0.7rem; color: var(--text-gray);">FILTRO: USD INDEX ATIVO</span>
+        </div>
+        <div class="scroll-area">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Hora</th>
+                        <th>Par</th>
+                        <th>Sinal</th>
+                        <th>TF</th>
+                        <th>Vela</th>
+                        <th>RSI</th>
+                        <th>MACD</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Configurações e Áudios
+        const audioBuy = new Audio('https://assets.mixkit.co/active_storage/sfx/2432/2432-preview.mp3');
+        const audioSell = new Audio('https://assets.mixkit.co/active_storage/sfx/2416/2416-preview.mp3');
+        let totalSignals = 0, confirmed = 0, buys = 0, sells = 0;
+
+        // Função para Criar o Card Gráfico (Referência image_8fa439)
+        function mostrarCardSinal(par, tipo, rsi, macd, tf, velaEntrada) {
+            const container = document.getElementById('alert-zone');
+            const color = tipo === 'COMPRA' ? 'var(--success)' : 'var(--danger)';
+            const icon = tipo === 'COMPRA' ? '📈' : '📉';
+            const cardClass = tipo === 'COMPRA' ? 'buy' : 'sell';
+
+            container.innerHTML = `
+                <div class="alert-card active ${cardClass}">
+                    <div class="card-title">SINAL DE ${tipo}</div>
+                    <div class="card-icon">${icon}</div>
+                    <div class="card-asset">${par}</div>
+                    <div class="card-details">
+                        <div>RSI: <b>${rsi}</b></div>
+                        <div>MACD: <b>${macd}</b></div>
+                        <div>TF: <b>${tf}</b></div>
+                        <div>Entrada: <b>${velaEntrada}</b></div>
+                    </div>
+                    <div class="check-item">
+                        ✅ ${tipo === 'COMPRA' ? 'MACD cruzou para cima' : 'MACD cruzou para baixo'} + Filtro DXY
+                    </div>
+                </div>
+            `;
+            
+            tipo === 'COMPRA' ? audioBuy.play() : audioSell.play();
+        }
+
+        // Função para Adicionar ao Histórico
+        function addHistory(par, tipo, tf, vela, rsi, macd) {
+            totalSignals++;
+            tipo === 'COMPRA' ? buys++ : sells++;
+            confirmed++; // Simulação de confirmação imediata para o teste
+
+            const row = `
+                <tr>
+                    <td>${new Date().toLocaleTimeString()}</td>
+                    <td><b>${par}</b></td>
+                    <td style="color: ${tipo === 'COMPRA' ? 'var(--success)' : 'var(--danger)'}">${tipo}</td>
+                    <td><span style="background:#2b3139; padding:2px 6px; border-radius:4px;">${tf}</span></td>
+                    <td>${vela}</td>
+                    <td>${rsi}</td>
+                    <td>${macd}</td>
+                    <td><span style="color: var(--primary)">✓ Confirmado</span></td>
+                </tr>
+            `;
+            const body = document.getElementById('history-body');
+            body.insertAdjacentHTML('afterbegin', row);
+            updateStats();
+        }
+
+        function updateStats() {
+            document.getElementById('total').innerText = totalSignals;
+            document.getElementById('compra').innerText = buys;
+            document.getElementById('venda').innerText = sells;
+            document.getElementById('conf').innerText = confirmed;
+            document.getElementById('taxa').innerText = ((confirmed/totalSignals)*100).toFixed(1) + "%";
+        }
+
+        // Simulação de Recebimento de Sinal (Teste Alpha)
+        setTimeout(() => {
+            const par = "ETH/USD";
+            const tf = "M5";
+            const proximaVela = "23:55:00"; // Exemplo arredondado
+            mostrarCardSinal(par, "COMPRA", "18.4", "+0.35", tf, proximaVela);
+            addHistory(par, "COMPRA", tf, proximaVela, "18.4", "+0.35");
+        }, 2000);
+
+    </script>
+</body>
+</html>
